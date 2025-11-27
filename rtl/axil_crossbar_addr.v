@@ -57,7 +57,9 @@ module axil_crossbar_addr #
     // M_COUNT bits
     parameter M_SECURE = {M_COUNT{1'b0}},
     // Enable write command output
-    parameter WC_OUTPUT = 0
+    parameter WC_OUTPUT = 0,
+    // Derived parameters - do not override
+    parameter CL_M_COUNT = M_COUNT > 1 ? $clog2(M_COUNT) : 1
 )
 (
     input  wire                       clk,
@@ -74,14 +76,14 @@ module axil_crossbar_addr #
     /*
      * Address output
      */
-    output wire [$clog2(M_COUNT)-1:0] m_select,
+    output wire [CL_M_COUNT-1:0]      m_select,
     output wire                       m_axil_avalid,
     input  wire                       m_axil_aready,
 
     /*
      * Write command output
      */
-    output wire [$clog2(M_COUNT)-1:0] m_wc_select,
+    output wire [CL_M_COUNT-1:0]      m_wc_select,
     output wire                       m_wc_decerr,
     output wire                       m_wc_valid,
     input  wire                       m_wc_ready,
@@ -89,14 +91,14 @@ module axil_crossbar_addr #
     /*
      * Reply command output
      */
-    output wire [$clog2(M_COUNT)-1:0] m_rc_select,
+    output wire [CL_M_COUNT-1:0]      m_rc_select,
     output wire                       m_rc_decerr,
     output wire                       m_rc_valid,
     input  wire                       m_rc_ready
 );
 
-parameter CL_S_COUNT = $clog2(S_COUNT);
-parameter CL_M_COUNT = $clog2(M_COUNT);
+parameter CL_S_COUNT = S_COUNT > 1 ? $clog2(S_COUNT) : 1;
+// CL_M_COUNT is now defined as a module parameter
 
 // default address computation
 function [M_COUNT*M_REGIONS*ADDR_WIDTH-1:0] calcBaseAddrs(input [31:0] dummy);

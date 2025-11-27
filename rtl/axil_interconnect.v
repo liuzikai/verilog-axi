@@ -113,8 +113,8 @@ module axil_interconnect #
     output wire [M_COUNT-1:0]             m_axil_rready
 );
 
-parameter CL_S_COUNT = $clog2(S_COUNT);
-parameter CL_M_COUNT = $clog2(M_COUNT);
+parameter CL_S_COUNT = S_COUNT > 1 ? $clog2(S_COUNT) : 1;
+parameter CL_M_COUNT = M_COUNT > 1 ? $clog2(M_COUNT) : 1;
 
 // default address computation
 function [M_COUNT*M_REGIONS*ADDR_WIDTH-1:0] calcBaseAddrs(input [31:0] dummy);

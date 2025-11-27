@@ -185,8 +185,8 @@ module axi_interconnect #
     output wire [M_COUNT-1:0]              m_axi_rready
 );
 
-parameter CL_S_COUNT = $clog2(S_COUNT);
-parameter CL_M_COUNT = $clog2(M_COUNT);
+parameter CL_S_COUNT = S_COUNT > 1 ? $clog2(S_COUNT) : 1;
+parameter CL_M_COUNT = M_COUNT > 1 ? $clog2(M_COUNT) : 1;
 
 parameter AUSER_WIDTH = AWUSER_WIDTH > ARUSER_WIDTH ? AWUSER_WIDTH : ARUSER_WIDTH;
 

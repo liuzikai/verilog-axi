@@ -63,7 +63,9 @@ module axi_crossbar_addr #
     // M_COUNT bits
     parameter M_SECURE = {M_COUNT{1'b0}},
     // Enable write command output
-    parameter WC_OUTPUT = 0
+    parameter WC_OUTPUT = 0,
+    // Derived parameters - do not override
+    parameter CL_M_COUNT = M_COUNT > 1 ? $clog2(M_COUNT) : 1
 )
 (
     input  wire                       clk,
@@ -83,14 +85,14 @@ module axi_crossbar_addr #
      * Address output
      */
     output wire [3:0]                 m_axi_aregion,
-    output wire [$clog2(M_COUNT)-1:0] m_select,
+    output wire [CL_M_COUNT-1:0]      m_select,
     output wire                       m_axi_avalid,
     input  wire                       m_axi_aready,
 
     /*
      * Write command output
      */
-    output wire [$clog2(M_COUNT)-1:0] m_wc_select,
+    output wire [CL_M_COUNT-1:0]      m_wc_select,
     output wire                       m_wc_decerr,
     output wire                       m_wc_valid,
     input  wire                       m_wc_ready,
@@ -109,8 +111,8 @@ module axi_crossbar_addr #
     input  wire                       s_cpl_valid
 );
 
-parameter CL_S_COUNT = $clog2(S_COUNT);
-parameter CL_M_COUNT = $clog2(M_COUNT);
+parameter CL_S_COUNT = S_COUNT > 1 ? $clog2(S_COUNT) : 1;
+// CL_M_COUNT is now defined as a module parameter
 
 parameter S_INT_THREADS = S_THREADS > S_ACCEPT ? S_ACCEPT : S_THREADS;
 parameter CL_S_INT_THREADS = $clog2(S_INT_THREADS);
