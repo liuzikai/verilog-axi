@@ -249,7 +249,10 @@ axi_crossbar_wr #(
     .M_SECURE(M_SECURE),
     .S_AW_REG_TYPE(S_AW_REG_TYPE),
     .S_W_REG_TYPE (S_W_REG_TYPE),
-    .S_B_REG_TYPE (S_B_REG_TYPE)
+    .S_B_REG_TYPE (S_B_REG_TYPE),
+    .M_AW_REG_TYPE(M_AW_REG_TYPE),
+    .M_W_REG_TYPE (M_W_REG_TYPE),
+    .M_B_REG_TYPE (M_B_REG_TYPE)
 )
 axi_crossbar_wr_inst (
     .clk(clk),
@@ -332,7 +335,9 @@ axi_crossbar_rd #(
     .M_ISSUE(M_ISSUE),
     .M_SECURE(M_SECURE),
     .S_AR_REG_TYPE(S_AR_REG_TYPE),
-    .S_R_REG_TYPE (S_R_REG_TYPE)
+    .S_R_REG_TYPE (S_R_REG_TYPE),
+    .M_AR_REG_TYPE(M_AR_REG_TYPE),
+    .M_R_REG_TYPE (M_R_REG_TYPE)
 )
 axi_crossbar_rd_inst (
     .clk(clk),
