@@ -199,11 +199,11 @@ initial begin
     end
 end
 
-localparam [2:0]
-    STATE_IDLE = 3'd0,
-    STATE_DECODE = 3'd1;
+localparam
+    STATE_IDLE = 1'b0,
+    STATE_DECODE = 1'b1;
 
-reg [2:0] state_reg = STATE_IDLE, state_next;
+reg state_reg = STATE_IDLE, state_next;
 
 reg s_axil_aready_reg = 0, s_axil_aready_next;
 
