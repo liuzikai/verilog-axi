@@ -34,6 +34,8 @@ THE SOFTWARE.
 module arbiter #
 (
     parameter PORTS = 4,
+    // ceil(log2(PORTS)), must be at least 1
+    parameter CL_PORTS = PORTS > 1 ? $clog2(PORTS) : 1,
     // select round robin arbitration
     parameter ARB_TYPE_ROUND_ROBIN = 0,
     // blocking arbiter enable
@@ -52,19 +54,19 @@ module arbiter #
 
     output wire [PORTS-1:0]         grant,
     output wire                     grant_valid,
-    output wire [$clog2(PORTS)-1:0] grant_encoded
+    output wire [CL_PORTS-1:0]      grant_encoded
 );
 
 reg [PORTS-1:0] grant_reg = 0, grant_next;
 reg grant_valid_reg = 0, grant_valid_next;
-reg [$clog2(PORTS)-1:0] grant_encoded_reg = 0, grant_encoded_next;
+reg [CL_PORTS-1:0] grant_encoded_reg = 0, grant_encoded_next;
 
 assign grant_valid = grant_valid_reg;
 assign grant = grant_reg;
 assign grant_encoded = grant_encoded_reg;
 
 wire request_valid;
-wire [$clog2(PORTS)-1:0] request_index;
+wire [CL_PORTS-1:0] request_index;
 wire [PORTS-1:0] request_mask;
 
 priority_encoder #(
@@ -81,7 +83,7 @@ priority_encoder_inst (
 reg [PORTS-1:0] mask_reg = 0, mask_next;
 
 wire masked_request_valid;
-wire [$clog2(PORTS)-1:0] masked_request_index;
+wire [CL_PORTS-1:0] masked_request_index;
 wire [PORTS-1:0] masked_request_mask;
 
 priority_encoder #(

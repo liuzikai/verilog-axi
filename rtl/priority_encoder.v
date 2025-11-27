@@ -34,13 +34,15 @@ THE SOFTWARE.
 module priority_encoder #
 (
     parameter WIDTH = 4,
+    // ceil(log2(WIDTH)), must be at least 1
+    parameter CL_WIDTH = WIDTH > 1 ? $clog2(WIDTH) : 1,
     // LSB priority selection
     parameter LSB_HIGH_PRIORITY = 0
 )
 (
     input  wire [WIDTH-1:0]         input_unencoded,
     output wire                     output_valid,
-    output wire [$clog2(WIDTH)-1:0] output_encoded,
+    output wire [CL_WIDTH-1:0]      output_encoded,
     output wire [WIDTH-1:0]         output_unencoded
 );
 
