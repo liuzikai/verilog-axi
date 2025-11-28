@@ -219,29 +219,15 @@ async def run_test_unique_ids_no_blocking(dut):
     next_arid = 0
     next_awid = 0
 
-    # Track blocking events - should not see any stalls beyond normal pipeline delay
-    ar_stall_cycles = 0
-    aw_stall_cycles = 0
-    max_allowed_stall = 5  # Allow small stalls for pipeline delays, not ID blocking
-
     # Test parameters
     num_transactions = 32
     s_count = len(tb.axi_master)
     m_count = len(tb.axi_ram)
 
-    # Issue many concurrent read and write transactions with unique IDs
-    # targeting different master interfaces
-    read_results = []
-    write_results = []
-
     async def issue_read(master_idx, arid, target_m, addr):
         """Issue a single read with a specific unique ARID"""
-        nonlocal ar_stall_cycles
         master = tb.axi_master[master_idx]
         length = 4
-
-        # Check stall condition: valid high but ready low for multiple cycles
-        stall_count = 0
 
         # Write test data to target RAM first
         test_data = bytearray([arid % 256] * length)
@@ -254,7 +240,6 @@ async def run_test_unique_ids_no_blocking(dut):
 
     async def issue_write(master_idx, awid, target_m, addr):
         """Issue a single write with a specific unique AWID"""
-        nonlocal aw_stall_cycles
         master = tb.axi_master[master_idx]
         length = 4
 
