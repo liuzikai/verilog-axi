@@ -1,0 +1,18 @@
+# Ignore Git files
+.git
+.gitignore
+
+# Ignore test artifacts
+*.pyc
+*.pyo
+*.vvp
+*.lxt
+*.fst
+__pycache__
+tb/*/sim_build
+*.kate-swp
+
+# Ignore development files
+.tox
+.pytest_cache
+.test_durations
