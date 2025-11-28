@@ -43,7 +43,10 @@ module axi_crossbar_addr #
     parameter ADDR_WIDTH = 32,
     // ID field width
     parameter ID_WIDTH = 8,
-    // Number of concurrent unique IDs
+    // Unique IDs mode: if set, each in-flight transaction has a unique ID,
+    // so thread tracking for ordering is not needed (improves timing)
+    parameter UNIQUE_IDS = 0,
+    // Number of concurrent unique IDs (ignored if UNIQUE_IDS=1)
     parameter S_THREADS = 32'd2,
     // Number of concurrent operations
     parameter S_ACCEPT = 32'd16,
@@ -114,7 +117,8 @@ module axi_crossbar_addr #
 parameter CL_S_COUNT = S_COUNT > 1 ? $clog2(S_COUNT) : 1;
 // CL_M_COUNT is now defined as a module parameter
 
-parameter S_INT_THREADS = S_THREADS > S_ACCEPT ? S_ACCEPT : S_THREADS;
+// Thread tracking parameters (only used when UNIQUE_IDS=0)
+parameter S_INT_THREADS = UNIQUE_IDS ? 1 : (S_THREADS > S_ACCEPT ? S_ACCEPT : S_THREADS);
 parameter CL_S_INT_THREADS = $clog2(S_INT_THREADS);
 parameter CL_S_ACCEPT = $clog2(S_ACCEPT);
 
@@ -266,54 +270,65 @@ reg trans_complete;
 reg [$clog2(S_ACCEPT+1)-1:0] trans_count_reg = 0;
 wire trans_limit = trans_count_reg >= S_ACCEPT && !trans_complete;
 
-// transfer ID thread tracking
-reg [ID_WIDTH-1:0] thread_id_reg[S_INT_THREADS-1:0];
-reg [CL_M_COUNT-1:0] thread_m_reg[S_INT_THREADS-1:0];
-reg [3:0] thread_region_reg[S_INT_THREADS-1:0];
-reg [$clog2(S_ACCEPT+1)-1:0] thread_count_reg[S_INT_THREADS-1:0];
-
-wire [S_INT_THREADS-1:0] thread_active;
-wire [S_INT_THREADS-1:0] thread_match;
-wire [S_INT_THREADS-1:0] thread_match_dest;
-wire [S_INT_THREADS-1:0] thread_cpl_match;
-wire [S_INT_THREADS-1:0] thread_trans_start;
-wire [S_INT_THREADS-1:0] thread_trans_complete;
+// Admission control signal - depends on UNIQUE_IDS mode
+wire admit_transaction;
 
 generate
-    genvar n;
+    if (UNIQUE_IDS) begin : gen_unique_ids
+        // UNIQUE_IDS mode: no thread tracking needed, just check transaction limit
+        // Each in-flight transaction has a unique ID, so ordering is guaranteed
+        assign admit_transaction = !trans_limit;
+    end else begin : gen_thread_tracking
+        // Standard mode: track threads to enforce AXI ordering rules
+        // transfer ID thread tracking
+        reg [ID_WIDTH-1:0] thread_id_reg[S_INT_THREADS-1:0];
+        reg [CL_M_COUNT-1:0] thread_m_reg[S_INT_THREADS-1:0];
+        reg [3:0] thread_region_reg[S_INT_THREADS-1:0];
+        reg [$clog2(S_ACCEPT+1)-1:0] thread_count_reg[S_INT_THREADS-1:0];
 
-    for (n = 0; n < S_INT_THREADS; n = n + 1) begin
-        initial begin
-            thread_count_reg[n] <= 0;
-        end
+        wire [S_INT_THREADS-1:0] thread_active;
+        wire [S_INT_THREADS-1:0] thread_match;
+        wire [S_INT_THREADS-1:0] thread_match_dest;
+        wire [S_INT_THREADS-1:0] thread_cpl_match;
+        wire [S_INT_THREADS-1:0] thread_trans_start;
+        wire [S_INT_THREADS-1:0] thread_trans_complete;
 
-        assign thread_active[n] = thread_count_reg[n] != 0;
-        assign thread_match[n] = thread_active[n] && thread_id_reg[n] == s_axi_aid;
-        assign thread_match_dest[n] = thread_match[n] && thread_m_reg[n] == m_select_next && (M_REGIONS < 2 || thread_region_reg[n] == m_axi_aregion_next);
-        assign thread_cpl_match[n] = thread_active[n] && thread_id_reg[n] == s_cpl_id;
-        assign thread_trans_start[n] = (thread_match[n] || (!thread_active[n] && !thread_match && !(thread_trans_start & ({S_INT_THREADS{1'b1}} >> (S_INT_THREADS-n))))) && trans_start;
-        assign thread_trans_complete[n] = thread_cpl_match[n] && trans_complete;
-
-        always @(posedge clk) begin
-            if (rst) begin
+        genvar n;
+        for (n = 0; n < S_INT_THREADS; n = n + 1) begin : thread_gen
+            initial begin
                 thread_count_reg[n] <= 0;
-            end else begin
-                if (thread_trans_start[n] && !thread_trans_complete[n]) begin
-                    thread_count_reg[n] <= thread_count_reg[n] + 1;
-                end else if (!thread_trans_start[n] && thread_trans_complete[n]) begin
-                    thread_count_reg[n] <= thread_count_reg[n] - 1;
+            end
+
+            assign thread_active[n] = thread_count_reg[n] != 0;
+            assign thread_match[n] = thread_active[n] && thread_id_reg[n] == s_axi_aid;
+            assign thread_match_dest[n] = thread_match[n] && thread_m_reg[n] == m_select_next && (M_REGIONS < 2 || thread_region_reg[n] == m_axi_aregion_next);
+            assign thread_cpl_match[n] = thread_active[n] && thread_id_reg[n] == s_cpl_id;
+            assign thread_trans_start[n] = (thread_match[n] || (!thread_active[n] && !thread_match && !(thread_trans_start & ({S_INT_THREADS{1'b1}} >> (S_INT_THREADS-n))))) && trans_start;
+            assign thread_trans_complete[n] = thread_cpl_match[n] && trans_complete;
+
+            always @(posedge clk) begin
+                if (rst) begin
+                    thread_count_reg[n] <= 0;
+                end else begin
+                    if (thread_trans_start[n] && !thread_trans_complete[n]) begin
+                        thread_count_reg[n] <= thread_count_reg[n] + 1;
+                    end else if (!thread_trans_start[n] && thread_trans_complete[n]) begin
+                        thread_count_reg[n] <= thread_count_reg[n] - 1;
+                    end
+                end
+
+                if (thread_trans_start[n]) begin
+                    thread_id_reg[n] <= s_axi_aid;
+                    thread_m_reg[n] <= m_select_next;
+                    thread_region_reg[n] <= m_axi_aregion_next;
                 end
             end
-
-            if (thread_trans_start[n]) begin
-                thread_id_reg[n] <= s_axi_aid;
-                thread_m_reg[n] <= m_select_next;
-                thread_region_reg[n] <= m_axi_aregion_next;
-            end
         end
+
+        // Admit if: not at limit AND (same ID going to same dest OR new ID with free slot)
+        assign admit_transaction = !trans_limit && (|thread_match_dest || (!(&thread_active) && !(|thread_match)));
     end
 endgenerate
-
 always @* begin
     state_next = STATE_IDLE;
 
@@ -349,8 +364,8 @@ always @* begin
 
                 if (match) begin
                     // address decode successful
-                    if (!trans_limit && (thread_match_dest || (!(&thread_active) && !thread_match))) begin
-                        // transaction limit not reached
+                    if (admit_transaction) begin
+                        // transaction admitted
                         m_axi_avalid_next = 1'b1;
                         m_decerr_next = 1'b0;
                         m_wc_valid_next = WC_OUTPUT;
@@ -358,7 +373,7 @@ always @* begin
                         trans_start = 1'b1;
                         state_next = STATE_DECODE;
                     end else begin
-                        // transaction limit reached; block in idle
+                        // admission blocked; stay in idle
                         state_next = STATE_IDLE;
                     end
                 end else begin

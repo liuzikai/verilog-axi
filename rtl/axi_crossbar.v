@@ -68,7 +68,10 @@ module axi_crossbar #
     parameter RUSER_ENABLE = 0,
     // Width of ruser signal
     parameter RUSER_WIDTH = 1,
-    // Number of concurrent unique IDs for each slave interface
+    // Unique IDs mode: if set, each in-flight transaction has a unique ID,
+    // so thread tracking for ordering is not needed (improves timing)
+    parameter UNIQUE_IDS = 0,
+    // Number of concurrent unique IDs for each slave interface (ignored if UNIQUE_IDS=1)
     // S_COUNT concatenated fields of 32 bits
     parameter S_THREADS = {S_COUNT{32'd2}},
     // Number of concurrent operations for each slave interface
@@ -239,6 +242,7 @@ axi_crossbar_wr #(
     .WUSER_WIDTH(WUSER_WIDTH),
     .BUSER_ENABLE(BUSER_ENABLE),
     .BUSER_WIDTH(BUSER_WIDTH),
+    .UNIQUE_IDS(UNIQUE_IDS),
     .S_THREADS(S_THREADS),
     .S_ACCEPT(S_ACCEPT),
     .M_REGIONS(M_REGIONS),
@@ -326,6 +330,7 @@ axi_crossbar_rd #(
     .ARUSER_WIDTH(ARUSER_WIDTH),
     .RUSER_ENABLE(RUSER_ENABLE),
     .RUSER_WIDTH(RUSER_WIDTH),
+    .UNIQUE_IDS(UNIQUE_IDS),
     .S_THREADS(S_THREADS),
     .S_ACCEPT(S_ACCEPT),
     .M_REGIONS(M_REGIONS),
