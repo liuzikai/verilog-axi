@@ -64,7 +64,8 @@ export PARAM_M_REGIONS := 1
 ifeq ($(SIM), icarus)
 	PLUSARGS += -fst
 
-	COMPILE_ARGS += $(foreach v,$(filter PARAM_%,$(.VARIABLES)),-P $(TOPLEVEL).$(subst PARAM_,,$(v))=$($(v)))
+	# Exclude S_COUNT and M_COUNT as they are localparams in the wrapper
+	COMPILE_ARGS += $(foreach v,$(filter-out PARAM_S_COUNT PARAM_M_COUNT,$(filter PARAM_%,$(.VARIABLES))),-P $(TOPLEVEL).$(subst PARAM_,,$(v))=$($(v)))
 
 	ifeq ($(WAVES), 1)
 		VERILOG_SOURCES += iverilog_dump.v
