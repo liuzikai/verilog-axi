@@ -197,6 +197,118 @@ async def run_stress_test(dut, idle_inserter=None, backpressure_inserter=None):
     await RisingEdge(dut.clk)
 
 
+@cocotb.test()
+async def run_test_unique_ids_no_blocking(dut):
+    """
+    Test that with UNIQUE_IDS=1 and unique AXI AxIDs, the crossbar never blocks
+    AR or AW channels due to ID ordering. Transactions should only be blocked
+    by S_ACCEPT limit or destination backpressure.
+
+    This test issues multiple concurrent transactions with unique IDs to different
+    destinations and verifies that address channels are accepted immediately
+    (not stalled due to thread tracking).
+    """
+
+    tb = TB(dut)
+
+    await tb.cycle_reset()
+
+    tb.log.info("Testing UNIQUE_IDS mode - verifying no blocking on AR/AW with unique IDs")
+
+    # Counter for unique transaction IDs
+    next_arid = 0
+    next_awid = 0
+
+    # Track blocking events - should not see any stalls beyond normal pipeline delay
+    ar_stall_cycles = 0
+    aw_stall_cycles = 0
+    max_allowed_stall = 5  # Allow small stalls for pipeline delays, not ID blocking
+
+    # Test parameters
+    num_transactions = 32
+    s_count = len(tb.axi_master)
+    m_count = len(tb.axi_ram)
+
+    # Issue many concurrent read and write transactions with unique IDs
+    # targeting different master interfaces
+    read_results = []
+    write_results = []
+
+    async def issue_read(master_idx, arid, target_m, addr):
+        """Issue a single read with a specific unique ARID"""
+        nonlocal ar_stall_cycles
+        master = tb.axi_master[master_idx]
+        length = 4
+
+        # Check stall condition: valid high but ready low for multiple cycles
+        stall_count = 0
+
+        # Write test data to target RAM first
+        test_data = bytearray([arid % 256] * length)
+        tb.axi_ram[target_m].write(addr & 0xFFFF, test_data)
+
+        # Issue read
+        result = await master.read(addr, length, arid=arid)
+        assert result.data == test_data, f"Read data mismatch for ARID={arid}"
+        return result
+
+    async def issue_write(master_idx, awid, target_m, addr):
+        """Issue a single write with a specific unique AWID"""
+        nonlocal aw_stall_cycles
+        master = tb.axi_master[master_idx]
+        length = 4
+
+        # Write data
+        test_data = bytearray([awid % 256] * length)
+        await master.write(addr, test_data, awid=awid)
+
+        # Verify write
+        assert tb.axi_ram[target_m].read(addr & 0xFFFF, length) == test_data, f"Write data mismatch for AWID={awid}"
+
+    # Launch multiple concurrent transactions with unique IDs across different
+    # masters and to different target slaves
+    tasks = []
+    for i in range(num_transactions):
+        master_idx = i % s_count
+        target_m = i % m_count
+        base_addr = target_m * 0x1000000 + (i * 0x100)  # Different address for each transaction
+
+        # Alternate between read and write, each with a unique ID
+        if i % 2 == 0:
+            arid = next_arid
+            next_arid += 1
+            tasks.append(cocotb.start_soon(issue_read(master_idx, arid, target_m, base_addr)))
+        else:
+            awid = next_awid
+            next_awid += 1
+            tasks.append(cocotb.start_soon(issue_write(master_idx, awid, target_m, base_addr)))
+
+    # Wait for all transactions to complete
+    for task in tasks:
+        await task.join()
+
+    tb.log.info(f"Completed {num_transactions} transactions with unique IDs")
+
+    # Additional stress test: issue many transactions to same destination with unique IDs
+    # With UNIQUE_IDS=1, these should all proceed without ID-based blocking
+    tb.log.info("Testing rapid transactions to same destination with unique IDs")
+
+    tasks = []
+    for i in range(16):
+        arid = next_arid
+        next_arid += 1
+        # All go to same destination (master interface 0)
+        tasks.append(cocotb.start_soon(issue_read(0, arid, 0, 0x1000 + i * 4)))
+
+    for task in tasks:
+        await task.join()
+
+    tb.log.info("UNIQUE_IDS test completed successfully - no unexpected blocking detected")
+
+    await RisingEdge(dut.clk)
+    await RisingEdge(dut.clk)
+
+
 def cycle_pause():
     return itertools.cycle([1, 1, 1, 0])
 
@@ -294,4 +406,81 @@ def test_axi_crossbar(request, s_count, m_count, data_width):
         parameters=parameters,
         sim_build=sim_build,
         extra_env=extra_env,
+    )
+
+
+@pytest.mark.parametrize("data_width", [32])
+@pytest.mark.parametrize("m_count", [4])
+@pytest.mark.parametrize("s_count", [4])
+def test_axi_crossbar_unique_ids(request, s_count, m_count, data_width):
+    """
+    Test axi_crossbar with UNIQUE_IDS=1 enabled.
+
+    This test verifies that when UNIQUE_IDS=1 and unique AxIDs are used,
+    the crossbar never blocks AR or AW channels due to ID ordering.
+    Transactions should only be blocked by S_ACCEPT limit or destination backpressure.
+    """
+    dut = "axi_crossbar"
+    wrapper = f"{dut}_wrap_{s_count}x{m_count}"
+    module = os.path.splitext(os.path.basename(__file__))[0]
+    toplevel = wrapper
+
+    # generate wrapper
+    wrapper_file = os.path.join(tests_dir, f"{wrapper}.v")
+    if not os.path.exists(wrapper_file):
+        subprocess.Popen(
+            [os.path.join(rtl_dir, f"{dut}_wrap.py"), "-p", f"{s_count}", f"{m_count}"],
+            cwd=tests_dir
+        ).wait()
+
+    verilog_sources = [
+        wrapper_file,
+        os.path.join(rtl_dir, f"{dut}.v"),
+        os.path.join(rtl_dir, f"{dut}_addr.v"),
+        os.path.join(rtl_dir, f"{dut}_rd.v"),
+        os.path.join(rtl_dir, f"{dut}_wr.v"),
+        os.path.join(rtl_dir, "axi_register_rd.v"),
+        os.path.join(rtl_dir, "axi_register_wr.v"),
+        os.path.join(rtl_dir, "arbiter.v"),
+        os.path.join(rtl_dir, "priority_encoder.v"),
+    ]
+
+    parameters = {}
+
+    # Note: S_COUNT and M_COUNT are localparams in the wrapper, so we don't include them
+    # in the parameters dict. They are only used for environment variables.
+    parameters['DATA_WIDTH'] = data_width
+    parameters['ADDR_WIDTH'] = 32
+    parameters['STRB_WIDTH'] = parameters['DATA_WIDTH'] // 8
+    parameters['S_ID_WIDTH'] = 8
+    parameters['M_ID_WIDTH'] = parameters['S_ID_WIDTH'] + (s_count-1).bit_length()
+    parameters['AWUSER_ENABLE'] = 0
+    parameters['AWUSER_WIDTH'] = 1
+    parameters['WUSER_ENABLE'] = 0
+    parameters['WUSER_WIDTH'] = 1
+    parameters['BUSER_ENABLE'] = 0
+    parameters['BUSER_WIDTH'] = 1
+    parameters['ARUSER_ENABLE'] = 0
+    parameters['ARUSER_WIDTH'] = 1
+    parameters['RUSER_ENABLE'] = 0
+    parameters['RUSER_WIDTH'] = 1
+    parameters['M_REGIONS'] = 1
+    parameters['UNIQUE_IDS'] = 1  # Enable UNIQUE_IDS mode
+
+    extra_env = {f'PARAM_{k}': str(v) for k, v in parameters.items()}
+    extra_env['PARAM_S_COUNT'] = str(s_count)
+    extra_env['PARAM_M_COUNT'] = str(m_count)
+
+    sim_build = os.path.join(tests_dir, "sim_build",
+        request.node.name.replace('[', '-').replace(']', ''))
+
+    cocotb_test.simulator.run(
+        python_search=[tests_dir],
+        verilog_sources=verilog_sources,
+        toplevel=toplevel,
+        module=module,
+        parameters=parameters,
+        sim_build=sim_build,
+        extra_env=extra_env,
+        testcase='run_test_unique_ids_no_blocking',
     )

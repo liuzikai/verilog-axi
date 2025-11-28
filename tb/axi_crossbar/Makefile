@@ -60,6 +60,7 @@ export PARAM_ARUSER_WIDTH := 1
 export PARAM_RUSER_ENABLE := 0
 export PARAM_RUSER_WIDTH := 1
 export PARAM_M_REGIONS := 1
+export PARAM_UNIQUE_IDS := 0
 
 ifeq ($(SIM), icarus)
 	PLUSARGS += -fst

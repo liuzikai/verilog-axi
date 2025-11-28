@@ -107,6 +107,9 @@ module {{name}} #
     parameter RUSER_ENABLE = 0,
     // Width of ruser signal
     parameter RUSER_WIDTH = 1,
+    // Unique IDs mode: if set, each in-flight transaction has a unique ID,
+    // so thread tracking for ordering is not needed (improves timing)
+    parameter UNIQUE_IDS = 0,
 {%- for p in range(m) %}
     // Number of concurrent unique IDs
     parameter S{{'%02d'%p}}_THREADS = 2,
@@ -316,6 +319,7 @@ axi_crossbar #(
     .ARUSER_WIDTH(ARUSER_WIDTH),
     .RUSER_ENABLE(RUSER_ENABLE),
     .RUSER_WIDTH(RUSER_WIDTH),
+    .UNIQUE_IDS(UNIQUE_IDS),
     .S_THREADS({ {% for p in range(m-1,-1,-1) %}w_32(S{{'%02d'%p}}_THREADS){% if not loop.last %}, {% endif %}{% endfor %} }),
     .S_ACCEPT({ {% for p in range(m-1,-1,-1) %}w_32(S{{'%02d'%p}}_ACCEPT){% if not loop.last %}, {% endif %}{% endfor %} }),
     .M_REGIONS(M_REGIONS),
