@@ -50,7 +50,7 @@ if [ "$INTERACTIVE" = true ]; then
         "$IMAGE_NAME" \
         /bin/bash
 elif [ -n "$PYTEST_ARGS" ]; then
-    echo "Running tests with custom arguments:$PYTEST_ARGS"
+    echo "Running tests with custom arguments: $PYTEST_ARGS"
     docker run --rm \
         -v "${PROJECT_ROOT}:/workspace" \
         "$IMAGE_NAME" \
