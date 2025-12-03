@@ -378,11 +378,17 @@ always @* begin
                     end
                 end else begin
                     // decode error
-                    m_axi_avalid_next = 1'b0;
-                    m_decerr_next = 1'b1;
-                    m_wc_valid_next = WC_OUTPUT;
-                    m_rc_valid_next = 1'b1;
-                    state_next = STATE_DECODE;
+                    if (admit_transaction) begin
+                        m_axi_avalid_next = 1'b0;
+                        m_decerr_next = 1'b1;
+                        m_wc_valid_next = WC_OUTPUT;
+                        m_rc_valid_next = 1'b1;
+                        trans_start = 1'b1;  // Count decode errors to balance trans_complete
+                        state_next = STATE_DECODE;
+                    end else begin
+                        // admission blocked; stay in idle
+                        state_next = STATE_IDLE;
+                    end
                 end
             end else begin
                 state_next = STATE_IDLE;
