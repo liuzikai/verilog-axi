@@ -48,7 +48,7 @@ module axi_crossbar_addr #
     parameter UNIQUE_IDS = 0,
     // Number of concurrent unique IDs (ignored if UNIQUE_IDS=1)
     parameter S_THREADS = 32'd2,
-    // Number of concurrent operations
+    // Number of concurrent operations (ignored if UNIQUE_IDS=1)
     parameter S_ACCEPT = 32'd16,
     // Number of regions per master interface
     parameter M_REGIONS = 1,
@@ -267,8 +267,28 @@ reg match;
 reg trans_start;
 reg trans_complete;
 
-reg [$clog2(S_ACCEPT+1)-1:0] trans_count_reg = 0;
-wire trans_limit = trans_count_reg >= S_ACCEPT && !trans_complete;
+wire trans_limit;
+
+generate
+    if (UNIQUE_IDS) begin : gen_unique_ids_admit
+        assign trans_limit = 1'b0;
+    end else begin : gen_std_admit
+        reg [$clog2(S_ACCEPT+1)-1:0] trans_count_reg = 0;
+        assign trans_limit = trans_count_reg >= S_ACCEPT && !trans_complete;
+
+        always @(posedge clk) begin
+            if (rst) begin
+                trans_count_reg <= 0;
+            end else begin
+                if (trans_start && !trans_complete) begin
+                    trans_count_reg <= trans_count_reg + 1;
+                end else if (!trans_start && trans_complete) begin
+                    trans_count_reg <= trans_count_reg - 1;
+                end
+            end
+        end
+    end
+endgenerate
 
 // Admission control signal - depends on UNIQUE_IDS mode
 wire admit_transaction;
@@ -415,20 +435,12 @@ always @(posedge clk) begin
         m_axi_avalid_reg <= 1'b0;
         m_wc_valid_reg <= 1'b0;
         m_rc_valid_reg <= 1'b0;
-
-        trans_count_reg <= 0;
     end else begin
         state_reg <= state_next;
         s_axi_aready_reg <= s_axi_aready_next;
         m_axi_avalid_reg <= m_axi_avalid_next;
         m_wc_valid_reg <= m_wc_valid_next;
         m_rc_valid_reg <= m_rc_valid_next;
-
-        if (trans_start && !trans_complete) begin
-            trans_count_reg <= trans_count_reg + 1;
-        end else if (!trans_start && trans_complete) begin
-            trans_count_reg <= trans_count_reg - 1;
-        end
     end
 
     m_axi_aregion_reg <= m_axi_aregion_next;

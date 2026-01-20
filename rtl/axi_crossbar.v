@@ -74,7 +74,7 @@ module axi_crossbar #
     // Number of concurrent unique IDs for each slave interface (ignored if UNIQUE_IDS=1)
     // S_COUNT concatenated fields of 32 bits
     parameter S_THREADS = {S_COUNT{32'd2}},
-    // Number of concurrent operations for each slave interface
+    // Number of concurrent operations for each slave interface (ignored if UNIQUE_IDS=1)
     // S_COUNT concatenated fields of 32 bits
     parameter S_ACCEPT = {S_COUNT{32'd16}},
     // Number of regions per master interface
@@ -92,7 +92,7 @@ module axi_crossbar #
     // Write connections between interfaces
     // M_COUNT concatenated fields of S_COUNT bits
     parameter M_CONNECT_WRITE = {M_COUNT{{S_COUNT{1'b1}}}},
-    // Number of concurrent operations for each master interface
+    // Number of concurrent operations for each master interface (ignored if UNIQUE_IDS=1)
     // M_COUNT concatenated fields of 32 bits
     parameter M_ISSUE = {M_COUNT{32'd4}},
     // Secure master (fail operations based on awprot/arprot)

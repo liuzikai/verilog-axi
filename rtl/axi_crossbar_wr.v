@@ -66,7 +66,7 @@ module axi_crossbar_wr #
     // Number of concurrent unique IDs for each slave interface (ignored if UNIQUE_IDS=1)
     // S_COUNT concatenated fields of 32 bits
     parameter S_THREADS = {S_COUNT{32'd2}},
-    // Number of concurrent operations for each slave interface
+    // Number of concurrent operations for each slave interface (ignored if UNIQUE_IDS=1)
     // S_COUNT concatenated fields of 32 bits
     parameter S_ACCEPT = {S_COUNT{32'd16}},
     // Number of regions per master interface
@@ -81,7 +81,7 @@ module axi_crossbar_wr #
     // Write connections between interfaces
     // M_COUNT concatenated fields of S_COUNT bits
     parameter M_CONNECT = {M_COUNT{{S_COUNT{1'b1}}}},
-    // Number of concurrent operations for each master interface
+    // Number of concurrent operations for each master interface (ignored if UNIQUE_IDS=1)
     // M_COUNT concatenated fields of 32 bits
     parameter M_ISSUE = {M_COUNT{32'd4}},
     // Secure master (fail operations based on awprot/arprot)
@@ -494,18 +494,23 @@ generate
         // in-flight transaction count
         wire trans_start;
         wire trans_complete;
-        reg [$clog2(M_ISSUE[n*32 +: 32]+1)-1:0] trans_count_reg = 0;
+        wire trans_limit;
 
-        wire trans_limit = trans_count_reg >= M_ISSUE[n*32 +: 32] && !trans_complete;
+        if (UNIQUE_IDS) begin : gen_unique_ids_limit
+            assign trans_limit = 1'b0;
+        end else begin : gen_std_limit
+            reg [$clog2(M_ISSUE[n*32 +: 32]+1)-1:0] trans_count_reg = 0;
+            assign trans_limit = trans_count_reg >= M_ISSUE[n*32 +: 32] && !trans_complete;
 
-        always @(posedge clk) begin
-            if (rst) begin
-                trans_count_reg <= 0;
-            end else begin
-                if (trans_start && !trans_complete) begin
-                    trans_count_reg <= trans_count_reg + 1;
-                end else if (!trans_start && trans_complete) begin
-                    trans_count_reg <= trans_count_reg - 1;
+            always @(posedge clk) begin
+                if (rst) begin
+                    trans_count_reg <= 0;
+                end else begin
+                    if (trans_start && !trans_complete) begin
+                        trans_count_reg <= trans_count_reg + 1;
+                    end else if (!trans_start && trans_complete) begin
+                        trans_count_reg <= trans_count_reg - 1;
+                    end
                 end
             end
         end
