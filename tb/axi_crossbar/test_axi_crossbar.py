@@ -201,12 +201,13 @@ async def run_stress_test(dut, idle_inserter=None, backpressure_inserter=None):
 async def run_test_unique_ids_no_blocking(dut):
     """
     Test that with UNIQUE_IDS=1 and unique AXI AxIDs, the crossbar never blocks
-    AR or AW channels due to ID ordering. Transactions should only be blocked
-    by S_ACCEPT limit or destination backpressure.
+    AR or AW channels. With UNIQUE_IDS=1, both thread-tracking admission control
+    and per-slave/per-master transaction-count limits (S_ACCEPT, M_ISSUE) are
+    disabled, so transactions are only limited by downstream backpressure.
 
     This test issues multiple concurrent transactions with unique IDs to different
     destinations and verifies that address channels are accepted immediately
-    (not stalled due to thread tracking).
+    (not stalled due to thread tracking or transaction count limits).
     """
 
     tb = TB(dut)
@@ -402,8 +403,10 @@ def test_axi_crossbar_unique_ids(request, s_count, m_count, data_width):
     Test axi_crossbar with UNIQUE_IDS=1 enabled.
 
     This test verifies that when UNIQUE_IDS=1 and unique AxIDs are used,
-    the crossbar never blocks AR or AW channels due to ID ordering.
-    Transactions should only be blocked by S_ACCEPT limit or destination backpressure.
+    the crossbar never blocks AR or AW channels. With UNIQUE_IDS=1, both
+    thread-tracking admission control and per-slave/per-master transaction-count
+    limits (S_ACCEPT, M_ISSUE) are disabled, so transactions are only limited
+    by downstream backpressure.
     """
     dut = "axi_crossbar"
     wrapper = f"{dut}_wrap_{s_count}x{m_count}"
