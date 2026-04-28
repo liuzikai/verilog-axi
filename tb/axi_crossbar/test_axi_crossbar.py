@@ -36,7 +36,7 @@ from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer
 from cocotb.regression import TestFactory
 
-from cocotbext.axi import AxiBus, AxiMaster, AxiRam
+from cocotbext.axi import AxiBus, AxiMaster, AxiRam, AxiResp
 
 
 class TB(object):
@@ -201,6 +201,45 @@ def cycle_pause():
     return itertools.cycle([1, 1, 1, 0])
 
 
+async def run_test_decerr(dut, idle_inserter=None, backpressure_inserter=None):
+    """Test decode error response: write returns DECERR bresp; read returns DECERR rresp
+    and 0xDEC0DEE3 read data (for DATA_WIDTH=32)."""
+
+    tb = TB(dut)
+
+    data_width = len(dut.s00_axi_wdata)
+    byte_lanes = data_width // 8
+
+    await tb.cycle_reset()
+
+    tb.set_idle_generator(idle_inserter)
+    tb.set_backpressure_generator(backpressure_inserter)
+
+    # 0xFF000000 is outside all master address spaces in every tested configuration.
+    # Masters occupy m*0x1000000 with 24-bit address width, so the highest used
+    # address is < 0x04000000 for 4 masters.
+    invalid_addr = 0xFF000000
+
+    # Write to an unmapped address must return DECERR
+    wr_resp = await tb.axi_master[0].write(invalid_addr, bytearray(byte_lanes))
+    assert wr_resp.resp == AxiResp.DECERR, \
+        f"Expected DECERR on write to unmapped address, got {wr_resp.resp}"
+
+    # Read from an unmapped address must return DECERR
+    rd_resp = await tb.axi_master[0].read(invalid_addr, byte_lanes)
+    assert rd_resp.resp == AxiResp.DECERR, \
+        f"Expected DECERR on read from unmapped address, got {rd_resp.resp}"
+
+    # For 32-bit data width, verify the 0xDEC0DEE3 sentinel value returned on decerr reads
+    if data_width == 32:
+        expected_data = bytearray(b'\xe3\xde\xc0\xde' * (byte_lanes // 4))
+        assert rd_resp.data == expected_data, \
+            f"Expected 0xDEC0DEE3 pattern in decerr read data, got {rd_resp.data.hex()}"
+
+    await RisingEdge(dut.clk)
+    await RisingEdge(dut.clk)
+
+
 if cocotb.SIM_NAME:
 
     s_count = len(cocotb.top.axi_crossbar_inst.s_axi_awvalid)
@@ -219,6 +258,11 @@ if cocotb.SIM_NAME:
         factory.add_option("s", range(min(s_count, 2)))
         factory.add_option("m", range(min(m_count, 2)))
         factory.generate_tests()
+
+    factory = TestFactory(run_test_decerr)
+    factory.add_option("idle_inserter", [None, cycle_pause])
+    factory.add_option("backpressure_inserter", [None, cycle_pause])
+    factory.generate_tests()
 
     factory = TestFactory(run_stress_test)
     factory.generate_tests()
@@ -280,6 +324,73 @@ def test_axi_crossbar(request, s_count, m_count, data_width):
     parameters['RUSER_ENABLE'] = 0
     parameters['RUSER_WIDTH'] = 1
     parameters['M_REGIONS'] = 1
+
+    extra_env = {f'PARAM_{k}': str(v) for k, v in parameters.items()}
+
+    sim_build = os.path.join(tests_dir, "sim_build",
+        request.node.name.replace('[', '-').replace(']', ''))
+
+    cocotb_test.simulator.run(
+        python_search=[tests_dir],
+        verilog_sources=verilog_sources,
+        toplevel=toplevel,
+        module=module,
+        parameters=parameters,
+        sim_build=sim_build,
+        extra_env=extra_env,
+    )
+
+
+@pytest.mark.parametrize("data_width", [32])
+@pytest.mark.parametrize("m_count", [1, 4])
+@pytest.mark.parametrize("s_count", [1, 4])
+def test_axi_crossbar_unique_ids(request, s_count, m_count, data_width):
+    dut = "axi_crossbar"
+    wrapper = f"{dut}_wrap_{s_count}x{m_count}"
+    module = os.path.splitext(os.path.basename(__file__))[0]
+    toplevel = wrapper
+
+    # Always regenerate wrapper to ensure the UNIQUE_IDS parameter is present
+    wrapper_file = os.path.join(tests_dir, f"{wrapper}.v")
+    subprocess.Popen(
+        [os.path.join(rtl_dir, f"{dut}_wrap.py"), "-p", f"{s_count}", f"{m_count}"],
+        cwd=tests_dir
+    ).wait()
+
+    verilog_sources = [
+        wrapper_file,
+        os.path.join(rtl_dir, f"{dut}.v"),
+        os.path.join(rtl_dir, f"{dut}_addr.v"),
+        os.path.join(rtl_dir, f"{dut}_rd.v"),
+        os.path.join(rtl_dir, f"{dut}_wr.v"),
+        os.path.join(rtl_dir, "axi_register_rd.v"),
+        os.path.join(rtl_dir, "axi_register_wr.v"),
+        os.path.join(rtl_dir, "arbiter.v"),
+        os.path.join(rtl_dir, "priority_encoder.v"),
+    ]
+
+    parameters = {}
+
+    parameters['S_COUNT'] = s_count
+    parameters['M_COUNT'] = m_count
+
+    parameters['DATA_WIDTH'] = data_width
+    parameters['ADDR_WIDTH'] = 32
+    parameters['STRB_WIDTH'] = parameters['DATA_WIDTH'] // 8
+    parameters['S_ID_WIDTH'] = 8
+    parameters['M_ID_WIDTH'] = parameters['S_ID_WIDTH'] + (s_count-1).bit_length()
+    parameters['AWUSER_ENABLE'] = 0
+    parameters['AWUSER_WIDTH'] = 1
+    parameters['WUSER_ENABLE'] = 0
+    parameters['WUSER_WIDTH'] = 1
+    parameters['BUSER_ENABLE'] = 0
+    parameters['BUSER_WIDTH'] = 1
+    parameters['ARUSER_ENABLE'] = 0
+    parameters['ARUSER_WIDTH'] = 1
+    parameters['RUSER_ENABLE'] = 0
+    parameters['RUSER_WIDTH'] = 1
+    parameters['M_REGIONS'] = 1
+    parameters['UNIQUE_IDS'] = 1
 
     extra_env = {f'PARAM_{k}': str(v) for k, v in parameters.items()}
 
