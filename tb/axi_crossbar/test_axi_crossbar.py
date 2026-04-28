@@ -233,7 +233,7 @@ async def run_test_decerr(dut, idle_inserter=None, backpressure_inserter=None):
     # For 32-bit data width, verify the 0xDEC0DEE3 sentinel value returned on decerr reads
     if data_width == 32:
         assert byte_lanes == 4, f"Expected byte_lanes=4 for data_width=32, got {byte_lanes}"
-        expected_data = bytearray(b'\xe3\xde\xc0\xde' * (byte_lanes // 4))
+        expected_data = bytearray(b'\xe3\xde\xc0\xde')
         assert rd_resp.data == expected_data, \
             f"Expected 0xDEC0DEE3 pattern in decerr read data, got {rd_resp.data.hex()}"
 
@@ -258,20 +258,21 @@ async def run_test_unique_ids_no_ar_aw_blocking(dut):
     await tb.cycle_reset()
 
     # Deliberately exceeds the default S_ACCEPT=16 and M_ISSUE=4 per-port limits
-    N_TRANSACTIONS = 32
+    n_transactions = 32
     m_idx = 0
     base_addr = m_idx * 0x1000000
-    # Give each address 4 bytes to avoid bursts being split across 4 kB pages
-    TIMEOUT_CYCLES = N_TRANSACTIONS * 20
+    # 4 bytes per slot keeps each transfer as a single beat within a 4 kB page
+    timeout_cycles = n_transactions * 20
 
     # ── Reads: verify no AR blocking ─────────────────────────────────────────
 
-    for i in range(N_TRANSACTIONS):
+    # Pre-fill RAM using its local address space (0-based, independent of base_addr)
+    for i in range(n_transactions):
         tb.axi_ram[m_idx].write(i * 4, bytearray([i & 0xff, (i >> 8) & 0xff, 0, 0]))
 
     # Hold back R responses so trans_count_reg never decrements.
     # AxiMaster._process_read sends each AR without waiting for R, so all
-    # N_TRANSACTIONS ARs are driven to the crossbar before any R returns.
+    # n_transactions ARs are driven to the crossbar before any R returns.
     for master in tb.axi_master:
         master.read_if.r_channel.set_pause_generator(itertools.cycle([1]))
 
@@ -287,19 +288,19 @@ async def run_test_unique_ids_no_ar_aw_blocking(dut):
 
     read_tasks = [
         cocotb.start_soon(tb.axi_master[0].read(base_addr + i * 4, 4, arid=i))
-        for i in range(N_TRANSACTIONS)
+        for i in range(n_transactions)
     ]
 
-    for _ in range(TIMEOUT_CYCLES):
+    for _ in range(timeout_cycles):
         await RisingEdge(dut.clk)
-        if ar_count[0] >= N_TRANSACTIONS:
+        if ar_count[0] >= n_transactions:
             break
 
     ar_monitor.kill()
 
-    assert ar_count[0] >= N_TRANSACTIONS, (
-        f"AR channel was blocked by admission control: only {ar_count[0]}/{N_TRANSACTIONS} "
-        f"AR handshakes completed in {TIMEOUT_CYCLES} cycles. "
+    assert ar_count[0] >= n_transactions, (
+        f"AR channel was blocked by admission control: only {ar_count[0]}/{n_transactions} "
+        f"AR handshakes completed in {timeout_cycles} cycles. "
         f"With UNIQUE_IDS=1 the admission counter must never block AR."
     )
 
@@ -315,7 +316,7 @@ async def run_test_unique_ids_no_ar_aw_blocking(dut):
 
     # Hold back B responses so trans_count_reg never decrements.
     # AxiMaster._process_write queues AW and W without waiting for B, so all
-    # N_TRANSACTIONS AWs are driven to the crossbar before any B returns.
+    # n_transactions AWs are driven to the crossbar before any B returns.
     for master in tb.axi_master:
         master.write_if.b_channel.set_pause_generator(itertools.cycle([1]))
 
@@ -333,19 +334,19 @@ async def run_test_unique_ids_no_ar_aw_blocking(dut):
         cocotb.start_soon(
             tb.axi_master[0].write(base_addr + i * 4, bytearray([i & 0xff, 0, 0, 0]), awid=i)
         )
-        for i in range(N_TRANSACTIONS)
+        for i in range(n_transactions)
     ]
 
-    for _ in range(TIMEOUT_CYCLES):
+    for _ in range(timeout_cycles):
         await RisingEdge(dut.clk)
-        if aw_count[0] >= N_TRANSACTIONS:
+        if aw_count[0] >= n_transactions:
             break
 
     aw_monitor.kill()
 
-    assert aw_count[0] >= N_TRANSACTIONS, (
-        f"AW channel was blocked by admission control: only {aw_count[0]}/{N_TRANSACTIONS} "
-        f"AW handshakes completed in {TIMEOUT_CYCLES} cycles. "
+    assert aw_count[0] >= n_transactions, (
+        f"AW channel was blocked by admission control: only {aw_count[0]}/{n_transactions} "
+        f"AW handshakes completed in {timeout_cycles} cycles. "
         f"With UNIQUE_IDS=1 the admission counter must never block AW."
     )
 
