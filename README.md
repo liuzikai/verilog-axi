@@ -501,3 +501,30 @@ Read
 ## Testing
 
 Running the included testbenches requires [cocotb](https://github.com/cocotb/cocotb), [cocotbext-axi](https://github.com/alexforencich/cocotbext-axi), and [Icarus Verilog](http://iverilog.icarus.com/).  The testbenches can be run with pytest directly (requires [cocotb-test](https://github.com/themperek/cocotb-test)), pytest via tox, or via cocotb makefiles.
+
+### Testing with Docker
+
+A Docker-based test environment is provided for running tests without setting up dependencies locally.
+
+Build the Docker image:
+
+    docker build -t verilog-axi-test .
+
+Run all tests:
+
+    docker run --rm verilog-axi-test
+
+Run specific tests:
+
+    docker run --rm verilog-axi-test pytest -n auto --verbose tb -k test_axi_ram
+
+Start an interactive shell:
+
+    docker run --rm -it verilog-axi-test /bin/bash
+
+Alternatively, use the provided script:
+
+    ./scripts/run-tests-docker.sh           # Run all tests
+    ./scripts/run-tests-docker.sh --build   # Rebuild the image before running
+    ./scripts/run-tests-docker.sh --shell   # Start an interactive shell
+    ./scripts/run-tests-docker.sh -k test_axi_ram  # Run specific tests
