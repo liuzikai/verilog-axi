@@ -232,6 +232,7 @@ async def run_test_decerr(dut, idle_inserter=None, backpressure_inserter=None):
 
     # For 32-bit data width, verify the 0xDEC0DEE3 sentinel value returned on decerr reads
     if data_width == 32:
+        assert byte_lanes == 4, f"Expected byte_lanes=4 for data_width=32, got {byte_lanes}"
         expected_data = bytearray(b'\xe3\xde\xc0\xde' * (byte_lanes // 4))
         assert rd_resp.data == expected_data, \
             f"Expected 0xDEC0DEE3 pattern in decerr read data, got {rd_resp.data.hex()}"
@@ -352,10 +353,11 @@ def test_axi_crossbar_unique_ids(request, s_count, m_count, data_width):
 
     # Always regenerate wrapper to ensure the UNIQUE_IDS parameter is present
     wrapper_file = os.path.join(tests_dir, f"{wrapper}.v")
-    subprocess.Popen(
+    ret = subprocess.Popen(
         [os.path.join(rtl_dir, f"{dut}_wrap.py"), "-p", f"{s_count}", f"{m_count}"],
         cwd=tests_dir
     ).wait()
+    assert ret == 0, f"Wrapper generation failed with exit code {ret}"
 
     verilog_sources = [
         wrapper_file,
