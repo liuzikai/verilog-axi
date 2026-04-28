@@ -3,4 +3,6 @@
 *.pyc
 *.vvp
 *.kate-swp
+tb/axi_crossbar/sim_build/
+tb/axi_crossbar/*_wrap_*.v
 
