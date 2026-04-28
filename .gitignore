@@ -4,3 +4,13 @@
 *.vvp
 *.kate-swp
 
+# cocotb test artifacts
+sim_build/
+results.xml
+*.fst
+
+# Generated wrapper files
+tb/axi_crossbar/axi_crossbar_wrap_*.v
+tb/axi_interconnect/axi_interconnect_wrap_*.v
+tb/axil_crossbar/axil_crossbar_wrap_*.v
+tb/axil_interconnect/axil_interconnect_wrap_*.v
