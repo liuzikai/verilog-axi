@@ -241,6 +241,126 @@ async def run_test_decerr(dut, idle_inserter=None, backpressure_inserter=None):
     await RisingEdge(dut.clk)
 
 
+async def run_test_unique_ids_no_ar_aw_blocking(dut):
+    """With UNIQUE_IDS=1, verify that AR and AW channels are never blocked by the
+    per-slave admission-control counters (S_ACCEPT / M_ISSUE).
+
+    Strategy: issue N_TRANSACTIONS > S_ACCEPT concurrent reads while holding
+    back R responses so that no completion ever decrements trans_count_reg.
+    The test then counts actual AR handshakes (arvalid && arready).  With
+    UNIQUE_IDS=1, trans_limit is hardwired to 0, so all N_TRANSACTIONS
+    handshakes must complete; with UNIQUE_IDS=0 only S_ACCEPT (=16 by default)
+    would complete before the channel stalls.  The same logic is repeated for
+    the AW channel with B responses held back.
+    """
+
+    tb = TB(dut)
+    await tb.cycle_reset()
+
+    # Deliberately exceeds the default S_ACCEPT=16 and M_ISSUE=4 per-port limits
+    N_TRANSACTIONS = 32
+    m_idx = 0
+    base_addr = m_idx * 0x1000000
+    # Give each address 4 bytes to avoid bursts being split across 4 kB pages
+    TIMEOUT_CYCLES = N_TRANSACTIONS * 20
+
+    # ── Reads: verify no AR blocking ─────────────────────────────────────────
+
+    for i in range(N_TRANSACTIONS):
+        tb.axi_ram[m_idx].write(i * 4, bytearray([i & 0xff, (i >> 8) & 0xff, 0, 0]))
+
+    # Hold back R responses so trans_count_reg never decrements.
+    # AxiMaster._process_read sends each AR without waiting for R, so all
+    # N_TRANSACTIONS ARs are driven to the crossbar before any R returns.
+    for master in tb.axi_master:
+        master.read_if.r_channel.set_pause_generator(itertools.cycle([1]))
+
+    ar_count = [0]
+
+    async def count_ar_handshakes():
+        while True:
+            await RisingEdge(dut.clk)
+            if int(dut.s00_axi_arvalid) and int(dut.s00_axi_arready):
+                ar_count[0] += 1
+
+    ar_monitor = cocotb.start_soon(count_ar_handshakes())
+
+    read_tasks = [
+        cocotb.start_soon(tb.axi_master[0].read(base_addr + i * 4, 4, arid=i))
+        for i in range(N_TRANSACTIONS)
+    ]
+
+    for _ in range(TIMEOUT_CYCLES):
+        await RisingEdge(dut.clk)
+        if ar_count[0] >= N_TRANSACTIONS:
+            break
+
+    ar_monitor.kill()
+
+    assert ar_count[0] >= N_TRANSACTIONS, (
+        f"AR channel was blocked by admission control: only {ar_count[0]}/{N_TRANSACTIONS} "
+        f"AR handshakes completed in {TIMEOUT_CYCLES} cycles. "
+        f"With UNIQUE_IDS=1 the admission counter must never block AR."
+    )
+
+    # Release R backpressure and drain all reads
+    for master in tb.axi_master:
+        master.read_if.r_channel.set_pause_generator(None)
+
+    for task in read_tasks:
+        resp = await task
+        assert resp.resp == AxiResp.OKAY
+
+    # ── Writes: verify no AW blocking ────────────────────────────────────────
+
+    # Hold back B responses so trans_count_reg never decrements.
+    # AxiMaster._process_write queues AW and W without waiting for B, so all
+    # N_TRANSACTIONS AWs are driven to the crossbar before any B returns.
+    for master in tb.axi_master:
+        master.write_if.b_channel.set_pause_generator(itertools.cycle([1]))
+
+    aw_count = [0]
+
+    async def count_aw_handshakes():
+        while True:
+            await RisingEdge(dut.clk)
+            if int(dut.s00_axi_awvalid) and int(dut.s00_axi_awready):
+                aw_count[0] += 1
+
+    aw_monitor = cocotb.start_soon(count_aw_handshakes())
+
+    write_tasks = [
+        cocotb.start_soon(
+            tb.axi_master[0].write(base_addr + i * 4, bytearray([i & 0xff, 0, 0, 0]), awid=i)
+        )
+        for i in range(N_TRANSACTIONS)
+    ]
+
+    for _ in range(TIMEOUT_CYCLES):
+        await RisingEdge(dut.clk)
+        if aw_count[0] >= N_TRANSACTIONS:
+            break
+
+    aw_monitor.kill()
+
+    assert aw_count[0] >= N_TRANSACTIONS, (
+        f"AW channel was blocked by admission control: only {aw_count[0]}/{N_TRANSACTIONS} "
+        f"AW handshakes completed in {TIMEOUT_CYCLES} cycles. "
+        f"With UNIQUE_IDS=1 the admission counter must never block AW."
+    )
+
+    # Release B backpressure and drain all writes
+    for master in tb.axi_master:
+        master.write_if.b_channel.set_pause_generator(None)
+
+    for task in write_tasks:
+        resp = await task
+        assert resp.resp == AxiResp.OKAY
+
+    await RisingEdge(dut.clk)
+    await RisingEdge(dut.clk)
+
+
 if cocotb.SIM_NAME:
 
     s_count = len(cocotb.top.axi_crossbar_inst.s_axi_awvalid)
@@ -267,6 +387,10 @@ if cocotb.SIM_NAME:
 
     factory = TestFactory(run_stress_test)
     factory.generate_tests()
+
+    if int(os.environ.get('PARAM_UNIQUE_IDS', '0')):
+        factory = TestFactory(run_test_unique_ids_no_ar_aw_blocking)
+        factory.generate_tests()
 
 
 # cocotb-test
